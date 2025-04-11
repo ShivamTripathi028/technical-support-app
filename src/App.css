@@ -1,0 +1,74 @@
+
+/* Remove default styling that could interfere with our design */
+#root {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+
+/* Transitions for form steps */
+.step-container {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-transition-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.fade-transition-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
+}
+.fade-transition-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+.fade-transition-exit-active {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 300ms, transform 300ms;
+}
+
+/* Support form specific styles */
+.support-blue {
+  color: #3498db;
+}
+
+.bg-support-blue {
+  background-color: #3498db;
+}
+
+.bg-support-dark-blue {
+  background-color: #2980b9;
+}
+
+.border-support-blue {
+  border-color: #3498db;
+}
+
+.border-support-light-blue {
+  border-color: #a9d5f5;
+}
+
+.bg-support-light-blue {
+  background-color: #ebf5fb;
+}
+
+/* File upload hover effect */
+.file-upload-area:hover {
+  border-color: #3498db;
+  background-color: rgba(52, 152, 219, 0.05);
+}
