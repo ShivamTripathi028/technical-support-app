@@ -143,6 +143,7 @@ export const SupportFormProvider = ({ children }: { children: ReactNode }) => {
 
       if (response.ok && response.status === 201) { // Check for 201 Created status
         console.log("Form submission successful:", result);
+        updateFormData({ submittedTicketId: result.ticketId || null });
         // --- Success ---
         setCurrentStep("confirmation"); // Move to confirmation step
         window.scrollTo(0, 0); // Scroll to top

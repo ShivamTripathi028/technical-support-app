@@ -39,6 +39,7 @@ export interface SupportFormData {
   
   // Consent
   privacyAgreed: boolean;
+  submittedTicketId?: number | string | null; // Zendesk IDs are numbers, but JSON might make it a string
 }
 
 export type FormStep = 

@@ -151,7 +151,7 @@ import type {
   
     // 5. Construct Zendesk API Payload
     const zendeskApiUrl = `https://${zendeskSubdomain}.zendesk.com/api/v2/tickets.json`;
-    const ticketSubject = `Support Request: ${payload.deviceModel || 'General Inquiry'} from ${payload.name}`;
+    const ticketSubject = `Technical Support Request: ${payload.deviceModel || 'General Inquiry'} from ${payload.name}`;
     const ticketBody = formatTicketBody(payload);
     const zendeskTicketData = {
       ticket: {
@@ -159,7 +159,10 @@ import type {
         comment: { html_body: ticketBody },
         requester: { name: payload.name, email: payload.email, verified: true },
         group_id: parseInt(zendeskGroupId, 10),
-        tags: ["web_support_form", "rak_support", payload.deviceModel || "unknown_device", `urgency_${payload.urgencyLevel || 'unknown'}`],
+        tags: ["TTR-tech-support"],
+        priority: payload.urgencyLevel === 'high' ? 'high'   // Map 'high' to 'high'
+                 : payload.urgencyLevel === 'medium' ? 'normal' // Map 'medium' to 'normal'
+                 : 'low', // Default to 'low' for all other cases
       },
     };
   
@@ -171,13 +174,21 @@ import type {
         headers: { "Content-Type": "application/json", Authorization: `Basic ${authToken}` },
       });
   
-      // 7. Handle Success
-      console.log(`SUCCESS: Created Zendesk ticket ID: ${response.data?.ticket?.id}`);
-      return {
-        statusCode: 201, // Created
-        body: JSON.stringify({ success: true, message: "Support request submitted successfully!", ticketId: response.data?.ticket?.id }),
-        headers: commonHeaders,
-      };
+    // 7. Handle Success - 
+    const createdTicketId = response.data?.ticket?.id;
+    console.log(`SUCCESS: Created Zendesk ticket ID: ${createdTicketId}`);
+
+    return {
+      statusCode: 201, // Created
+      body: JSON.stringify({
+        success: true,
+        message: "Support request submitted successfully!",
+        // Include the actual ticket ID in the response to the frontend
+        ticketId: createdTicketId || null // Send the ID or null if not found
+      }),
+      headers: commonHeaders,
+    };
+      
   
     } catch (error: any) {
       // 8. Handle Zendesk API Error
