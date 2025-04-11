@@ -2,7 +2,7 @@
 
 import React, { createContext, useState, useContext, ReactNode } from "react";
 import { FormStep, SupportFormData } from "../types/supportForm";
-import { toast } from "@/hooks/use-toast"; // Using the shadcn toast hook
+import { toast } from "@/hooks/use-toast";
 
 interface SupportFormContextType {
   formData: SupportFormData;
@@ -23,19 +23,22 @@ const defaultFormData: SupportFormData = {
   email: "",
   phone: "",
   deviceModel: "",
-  serialNumber: "",  // This will store the EUI Number
+  serialNumber: "",
   firmwareVersion: "",
-  problemType: "connectivity",
+  problemType: "connectivity", // Default problem type
   issueDescription: "",
   errorMessage: "",
-  errorScreenshots: [],
+  // errorScreenshots: [], // REMOVED
   stepsToReproduce: "",
-  supportMethod: "email",
-  urgencyLevel: "medium",
-  attachments: [],
-  privacyAgreed: false
+  previousTicketId: "", // ADDED default
+  supportMethod: "email", // Default support method
+  urgencyLevel: "medium", // Default urgency
+  attachments: [], // Initialize combined attachments
+  privacyAgreed: false, // Default consent state
+  submittedTicketId: null, // Initialize submitted ticket ID
 };
 
+// Define the order of steps
 const steps: FormStep[] = [
   "clientInfo",
   "deviceInfo",
@@ -44,9 +47,8 @@ const steps: FormStep[] = [
   "confirmation"
 ];
 
-// --- Define the path to your Netlify function ---
-const API_ENDPOINT = "/.netlify/functions/support-ticket"; // Updated endpoint name
-// --- End Netlify Function Path ---
+// Define the path to your Netlify function
+const API_ENDPOINT = "/.netlify/functions/support-ticket";
 
 const SupportFormContext = createContext<SupportFormContextType | undefined>(undefined);
 
@@ -56,24 +58,19 @@ export const SupportFormProvider = ({ children }: { children: ReactNode }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const currentStepIndex = steps.indexOf(currentStep);
-  // Progress calculation based on visual steps (Client to Review are the 4 progress points)
   const activeProgressBarSteps = steps.length - 2; // Client, Device, Issue, Review
-  const currentProgressBarIndex = Math.min(currentStepIndex, activeProgressBarSteps); // Cap index at the last visual step
-  // Calculate progress out of 100, ensuring it reaches 100 only when review step is active/passed
+  const currentProgressBarIndex = Math.min(currentStepIndex, activeProgressBarSteps);
   const stepProgress = currentProgressBarIndex === activeProgressBarSteps
     ? 100
     : Math.round((currentProgressBarIndex / activeProgressBarSteps) * 100);
 
   const updateFormData = (data: Partial<SupportFormData>) => {
-    // Clear attachments/screenshots if data is explicitly set to null/undefined, otherwise update
     const updatedData = { ...data };
-    if ('attachments' in data && !data.attachments) {
-        updatedData.attachments = [];
+    // Ensure file arrays are always arrays if being set
+    if ('attachments' in data && !Array.isArray(data.attachments) && data.attachments !== undefined) {
+        updatedData.attachments = []; // Reset if invalid type provided, keep if undefined
     }
-     if ('errorScreenshots' in data && !data.errorScreenshots) {
-        updatedData.errorScreenshots = [];
-    }
-
+    // No need to check errorScreenshots anymore
     setFormData((prev) => ({ ...prev, ...updatedData }));
   };
 
@@ -81,114 +78,93 @@ export const SupportFormProvider = ({ children }: { children: ReactNode }) => {
     const currentIndex = steps.indexOf(currentStep);
     if (currentIndex < steps.length - 1) {
       setCurrentStep(steps[currentIndex + 1]);
-      window.scrollTo(0, 0); // Scroll to top on step change
+      window.scrollTo(0, 0);
     }
   };
 
   const prevStep = () => {
     const currentIndex = steps.indexOf(currentStep);
-    // Prevent going back from confirmation page using 'prev' button
-    if (currentStep === 'confirmation') return;
-
+    if (currentStep === 'confirmation') return; // Don't go back from confirmation
     if (currentIndex > 0) {
       setCurrentStep(steps[currentIndex - 1]);
-      window.scrollTo(0, 0); // Scroll to top on step change
+      window.scrollTo(0, 0);
     }
   };
 
  const goToStep = (step: FormStep) => {
     // Reset form if navigating back to the first step from a later step
     if (step === 'clientInfo' && currentStep !== 'clientInfo') {
-        // Optionally add a confirmation dialog here if needed
         console.log("Navigating back to first step, resetting form data.");
-        setFormData(defaultFormData);
+        setFormData(defaultFormData); // Reset includes submittedTicketId: null
         setCurrentStep('clientInfo');
     } else if (steps.includes(step) && step !== 'confirmation') { // Prevent direct navigation to confirmation
-      setCurrentStep(step);
+      // Check if navigation is allowed based on current data (using logic similar to canGoToStep in progress bar)
+       const targetStepIndex = steps.indexOf(step);
+       let canNavigate = true;
+       if (targetStepIndex >= 1 && (!formData.name || !formData.email)) canNavigate = false;
+       if (targetStepIndex >= 2 && !formData.deviceModel) canNavigate = false; // Only model required now
+       if (targetStepIndex >= 3 && (!formData.issueDescription || !formData.urgencyLevel)) canNavigate = false;
+
+       if(canNavigate) {
+          setCurrentStep(step);
+       } else {
+           console.warn(`Cannot navigate to step "${step}" yet. Prerequisite data missing.`);
+           toast({ title: "Cannot Navigate", description: "Please complete previous steps first.", variant: "destructive"});
+       }
     }
-     window.scrollTo(0, 0); // Scroll to top on step change
+     window.scrollTo(0, 0);
   };
 
   const submitForm = async () => {
-    // Ensure we are on the review step before submitting
     if (currentStep !== 'review') {
         console.warn("Submit called from incorrect step:", currentStep);
-        toast({
-            title: "Cannot Submit",
-            description: "Please complete all steps before submitting.",
-            variant: "destructive",
-        });
+        toast({ title: "Cannot Submit", description: "Please complete all steps before submitting.", variant: "destructive" });
         return;
     }
     setIsSubmitting(true);
+    updateFormData({ submittedTicketId: null }); // Clear previous ID
 
-    // --- Prepare data for submission ---
-    // Create a plain object, excluding File objects
+    // Prepare data, sending file arrays so backend can check their length
     const dataToSend = { ...formData };
-    delete dataToSend.attachments; // Remove file arrays before sending
-    delete dataToSend.errorScreenshots; // Remove file arrays before sending
+    // Ensure arrays are sent, even if empty
+    dataToSend.attachments = dataToSend.attachments || [];
+    // delete dataToSend.errorScreenshots; // REMOVED
+    delete dataToSend.submittedTicketId; // Don't send the previous ID
 
     try {
-      // --- Make the actual API call to the Netlify function ---
-      const response = await fetch(API_ENDPOINT, { // Use the constant
+      const response = await fetch(API_ENDPOINT, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(dataToSend), // Send the cleaned data
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dataToSend),
       });
 
-      // --- Handle the response ---
-      const result = await response.json(); // Parse JSON response body
+      const result = await response.json();
 
-      if (response.ok && response.status === 201) { // Check for 201 Created status
+      if (response.ok && response.status === 201 && result.success) {
         console.log("Form submission successful:", result);
-        updateFormData({ submittedTicketId: result.ticketId || null });
-        // --- Success ---
-        setCurrentStep("confirmation"); // Move to confirmation step
-        window.scrollTo(0, 0); // Scroll to top
-        toast({
-          title: "Support Request Submitted!",
-          description: result.message || "Our team will review your request shortly.",
-          variant: "default", // Use default success style
-          duration: 7000,
-        });
-        // Optionally store ticket ID if needed for confirmation page
-        // updateFormData({ submittedTicketId: result.ticketId });
+        updateFormData({ submittedTicketId: result.ticketId || null }); // Store actual ID
+        setCurrentStep("confirmation");
+        window.scrollTo(0, 0);
+        toast({ title: "Support Request Submitted!", description: result.message || "Our team will review your request shortly.", duration: 7000 });
       } else {
-        // --- Handle errors from the backend ---
-        console.error("Submission Error:", response.status, result);
-        toast({
-          title: "Submission Failed",
-          description: result.message || `An error occurred (Status: ${response.status}). Please review your submission or try again.`,
-          variant: "destructive", // Use destructive variant for errors
-          duration: 9000,
-        });
-        // Keep the user on the review step to allow corrections or retry
+         console.error("Submission Error:", response.status, result);
+        toast({ title: "Submission Failed", description: result.message || `An error occurred (Status: ${response.status}). Please review your submission or try again.`, variant: "destructive", duration: 9000 });
       }
     } catch (error) {
-      // --- Handle network errors or issues reaching the function ---
-      console.error("Network or Fetch Error submitting form:", error);
-      toast({
-        title: "Network Error",
-        description: "Could not send your request due to a network issue. Please check your connection and try again.",
-        variant: "destructive",
-        duration: 9000,
-      });
-       // Keep the user on the review step
+       console.error("Network or Fetch Error submitting form:", error);
+        toast({ title: "Network Error", description: "Could not send your request. Please check your connection and try again.", variant: "destructive", duration: 9000 });
     } finally {
-      setIsSubmitting(false); // Reset loading state regardless of outcome
+      setIsSubmitting(false);
     }
   };
 
-  // Function to download form data as JSON (excluding files)
   const downloadSummary = () => {
-    // Exclude file objects from the summary download
     const summaryData = { ...formData };
-    delete summaryData.attachments;
-    delete summaryData.errorScreenshots;
+    // Represent file info, not the File objects themselves
+    summaryData.attachments = formData.attachments?.map(f => ({ name: f.name, size: f.size, type: f.type })) || [];
+    // delete summaryData.errorScreenshots; // REMOVED
 
-    const dataStr = JSON.stringify(summaryData, null, 2); // Pretty print JSON
+    const dataStr = JSON.stringify(summaryData, null, 2);
     const blob = new Blob([dataStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
 
@@ -200,14 +176,10 @@ export const SupportFormProvider = ({ children }: { children: ReactNode }) => {
     linkElement.setAttribute("download", `${exportName}.json`);
     document.body.appendChild(linkElement);
     linkElement.click();
-    document.body.removeChild(linkElement); // Clean up the link
-    URL.revokeObjectURL(url); // Free up memory
+    document.body.removeChild(linkElement);
+    URL.revokeObjectURL(url);
 
-    toast({ // Notify user
-        title: "Summary Downloaded",
-        description: "Your request summary has been saved as a JSON file.",
-        duration: 5000,
-    });
+    toast({ title: "Summary Downloaded", description: "Your request summary has been saved as a JSON file.", duration: 5000 });
   };
 
 
@@ -231,7 +203,6 @@ export const SupportFormProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
-// Export hook as before
 export const useSupportForm = () => {
   const context = useContext(SupportFormContext);
   if (context === undefined) {
